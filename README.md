@@ -1,220 +1,208 @@
-**我的理解**
+# KnowledgeManager
 
-这个项目要做的不是“调用大模型回答问题”，而是实现一个轻量级 RAG 知识库组件。核心价值在于：把文本知识自动分类、结构化入库、向量化存储，然后在用户提问时做混合检索、重排和 Prompt 组装，给下游大模型提供可靠上下文，减少幻觉。
+一个基于大模型的轻量级智能知识库管理与检索组件，面向智能客服、产品问答、内部知识助手等 RAG 场景。
 
-最终交付要包含三类东西：
+当前版本：**V1.1 配置与 README 修复版**
 
-1. **方案设计文档/PDF**
-2. **可运行源码 + README + Demo**
-3. **验证报告：分类、检索、对比实验、边界测试**
+V1.1 在 V1.0 MVP 主链路基础上修复了 `.env` 配置加载问题，并将默认模型配置切换为 BigModel 官方的 `GLM-4.7-Flash`。
 
-当前目录里还没有源码工程，只有题目文件和空的 `plans` 目录，所以建议先从工程骨架和方案文档同步开始。
+## 已实现能力
 
-**推荐项目结构**
+- 知识入库：`KnowledgeManager.addKnowledge(text, metadata?)`
+- 智能分类：调用 LLM 生成业务域、知识类型、重要程度、过期时间、标签、摘要、置信度
+- 文档存储：SQLite 保存原文、元数据、状态和版本
+- 向量存储：本地 JSON 保存 embedding 向量
+- 混合检索：关键词检索 + 向量检索
+- 智能检索增强：查询改写、结果重排
+- Prompt 组装：返回带来源、分数、上下文的下游 LLM Prompt
+- 版本管理：同一 `logical_id` 支持多版本
+- 过期过滤：过期知识默认不参与检索
+- 基础可观测性：记录分类置信度、检索耗时、Prompt token 估算
+- 本地 fallback：无 API Key 或 API 失败时仍可用规则分类和哈希向量跑通 Demo
 
-建议用 Python，理由是 RAG、Embedding、向量库、Demo 验证生态更轻，2 周内交付风险更低。
+## 目录结构
 
 ```text
-zhaoshang/
-  README.md
-  requirements.txt
-  .env.example
-
-  src/
-    knowledge_base/
-      __init__.py
-      manager.py              # KnowledgeManager 对外入口
-      models.py               # Knowledge、Metadata、QueryResult 等数据结构
-      config.py               # API Key、模型、TopK、Token 上限配置
-
-      llm/
-        client.py             # LLM/Embedding API 适配
-        prompts.py            # 分类、查询改写、重排 Prompt 模板
-
-      storage/
-        document_store.py     # 文档 CRUD、版本、过期
-        vector_store.py       # 向量存储与相似度检索
-        keyword_index.py      # 关键词/BM25/简单倒排索引
-
-      retrieval/
-        hybrid_retriever.py   # 关键词 + 向量混合检索
-        reranker.py           # LLM 重排，可先简化
-        prompt_builder.py     # 上下文 Prompt 组装和 Token 控制
-
-      observability/
-        metrics.py            # 指标记录，加分项
-
-  data/
-    samples/                  # 20-30 条样本文档
-    kb.sqlite                 # 文档/元数据存储
-    vectors.json 或 chroma/    # 向量存储
-
-  scripts/
-    demo_add.py               # 入库 Demo
-    demo_query.py             # 查询 Demo
-    evaluate.py               # 验证脚本
-
-  docs/
-    design.md                 # 方案设计文档草稿
-    validation_report.md      # 验证报告
+.
+├── src/knowledge_base/
+│   ├── manager.py                  # KnowledgeManager 对外入口
+│   ├── models.py                   # 文档、元数据、检索结果模型
+│   ├── config.py                   # 环境变量和运行配置
+│   ├── llm/                        # LLM/Embedding API 与 Prompt 模板
+│   ├── storage/                    # SQLite 文档库、向量库、关键词索引
+│   ├── retrieval/                  # 混合检索、重排、Prompt 组装
+│   └── observability/              # 指标记录
+├── data/samples/                   # 24 条样本文档
+├── scripts/                        # 入库、查询、评估脚本
+├── docs/                           # 方案设计和验证报告
+├── .env.example                    # BigModel 配置模板
+└── requirements.txt
 ```
 
-**核心目标**
+## 环境要求
 
-必须完成的目标有三个：
+- Python 3.10+
+- Git
+- 可选：BigModel API Key
 
-1. **智能分类与入库**
-   - 输入 Markdown/纯文本。
-   - 调用 LLM 生成结构化分类 JSON。
-   - 分类维度至少包括：业务域、知识类型、重要程度、过期时间、关键词/标签、摘要、置信度。
-   - 低置信度时保留 `needs_review=true`，而不是强行分类。
+当前代码只使用 Python 标准库，`requirements.txt` 暂无强制第三方依赖。
 
-2. **存储与管理**
-   - 保存原始文本、分类元数据、版本号、创建时间、更新时间、过期时间、状态。
-   - 文本向量化后存入向量库。
-   - 支持新增、更新、删除、查询、过期过滤。
-   - 版本管理可以先用“同一个 logical_id 多个 version”的方式实现。
+## 配置大模型 API
 
-3. **智能检索与 Prompt 组装**
-   - 用户问题进入后，先做查询改写，或者至少生成检索关键词。
-   - 同时做关键词检索和向量检索。
-   - 合并结果后按分数排序，必要时用 LLM 重排。
-   - 最后按 Token 上限组装上下文 Prompt，返回给下游 LLM。
+复制配置模板：
 
-**约束**
+```bash
+copy .env.example .env
+```
 
-题目中的硬约束是：
+在 `.env` 中填写你的 API Key：
 
-- 语言推荐 Java 或 Python。
-- 必须使用大模型 API 做分类和智能检索相关环节。
-- 可以用 Chroma、FAISS 或内存向量库。
-- 只处理纯文本/Markdown，不做 PDF、Word 解析。
-- 核心逻辑要自己实现，尤其是分类 Prompt、检索编排、Prompt 组装。
+```env
+LLM_API_KEY=your_bigmodel_api_key_here
+LLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+LLM_MODEL=glm-4.7-flash
+EMBEDDING_MODEL=embedding-3
+EMBEDDING_DIMENSIONS=
 
-我的建议是：
+KB_DB_PATH=data/kb.sqlite
+KB_VECTOR_PATH=data/vectors.json
+KB_VECTOR_DIMENSIONS=256
+KB_TOP_K=5
+KB_PROMPT_TOKEN_LIMIT=1800
+KB_VECTOR_WEIGHT=0.65
+KB_KEYWORD_WEIGHT=0.35
+```
 
-- **Python + SQLite + 简易向量存储/Chroma**
-- 第一版用本地json向量库实现(第一版可以先用内存/JSON 向量库，方便展示；如果想显得更工程化，用 Chroma)。
-- 文档元数据用 SQLite，结构清楚，也方便写 Schema。
-- LLM API 做成 OpenAI-compatible 接口，后续可接 OpenAI、通义、智谱、DeepSeek、硅基流动等。
+说明：
 
-**验收标准**
+- `LLM_MODEL` 固定使用 `glm-4.7-flash`。
+- `LLM_BASE_URL` 使用 BigModel OpenAI-compatible API 地址。
+- `EMBEDDING_MODEL` 使用 `embedding-3`。
+- `EMBEDDING_DIMENSIONS` 为空时使用服务商默认维度；设置数值时会随 embedding 请求传入。
+- `.env` 已被 `.gitignore` 忽略，避免提交 API Key。
 
-我会按下面这些标准判断项目是否完成：
+不配置 `.env` 也可以运行，系统会自动使用 fallback 模式。
 
-1. 能运行 `KnowledgeManager.addKnowledge(text, metadata?)`。
-2. 能自动分类并生成结构化元数据。
-3. 能保存文本、版本、过期时间、向量。
-4. 能运行 `KnowledgeManager.query(question)`。
-5. 查询结果来自混合检索，而不是只靠 LLM 编答案。
-6. 能返回检索到的知识片段、分数、来源、最终 Prompt。
-7. 有 20-30 条样本文档。
-8. 有 Demo 脚本展示端到端流程。
-9. 有验证报告，包含 Top-K 命中、分类结果、RAG vs 纯 LLM 对比。
-10. README 能让别人配置 API Key 后跑起来。
+## 快速运行
 
-**必要优先级**
+入库样本文档：
 
-第一优先级，必须做：
+```bash
+python scripts/demo_add.py
+```
 
-- 工程骨架
-- `KnowledgeManager`
-- LLM 分类 Prompt
-- Embedding 调用
-- 文档存储
-- 向量检索
-- 关键词检索
-- 混合检索
-- Prompt 组装
-- Demo 脚本
-- 设计文档和 README
+查询知识库：
 
-这些是题目明确要求的主线，缺一个都会影响验收。
+```bash
+python scripts/demo_query.py "API 返回 401 应该怎么处理？"
+```
 
-第二优先级，建议做：
+运行评估：
 
-- 查询改写
-- 简单 LLM 重排
-- 版本管理
-- 过期过滤
-- Token 长度控制
-- 验证脚本
-- 指标记录
+```bash
+python scripts/evaluate.py
+```
 
-这些会让项目从“能跑”变成“像一个组件”。
+评估脚本会重建本地 `data/kb.sqlite` 和 `data/vectors.json`，导入 24 条样本文档，并输出 Hit@1、Hit@3、查询耗时和 Top-K 来源。
 
-第三优先级，加分项：
+## 代码使用示例
 
-- HyDE
-- 动态分类规则
-- 知识冲突检测
-- 聚类重分类
-- 更完整可观测性
-- Web/API 服务
-- 更漂亮的报告图表
+```python
+from knowledge_base import KnowledgeManager
 
-这些不是第一版必要项，但适合放进设计文档的“后续优化”，或者在时间充裕时实现其中 1-2 个。
+manager = KnowledgeManager()
 
-**建议实施步骤**
+added = manager.addKnowledge(
+    "API接口返回401通常表示访问令牌无效或已过期。",
+    metadata={"source_id": "manual-001"},
+)
 
-1. **先写最小工程骨架**
-   - 必要。
-   - 理由：后续所有代码都要围绕 `KnowledgeManager` 展开，先定入口可以避免散乱脚本。
+result = manager.query("接口返回401怎么办？")
 
-2. **定义数据模型和存储 Schema**
-   - 必要。
-   - 理由：分类、检索、版本、过期都依赖统一的数据结构。
+print(result["hits"])
+print(result["prompt"])
+```
 
-3. **实现 LLM 分类模块**
-   - 必要。
-   - 理由：题目重点之一就是“利用大模型做智能分类”，不能只写人工 metadata。
+## 核心流程
 
-4. **实现 Embedding 和向量存储**
-   - 必要。
-   - 理由：语义检索是 RAG 的基础，也是题目硬要求。
+### 入库流程
 
-5. **实现关键词检索**
-   - 必要。
-   - 理由：题目要求“关键词 + 向量混合检索”；关键词检索还能补足专有名词、产品名、规章编号等场景。
+```text
+text
+ -> LLM 分类 / fallback 分类
+ -> 合并人工 metadata
+ -> SQLite 保存文档版本
+ -> Embedding API / fallback 向量
+ -> 本地向量库 upsert
+```
 
-6. **实现混合召回和排序**
-   - 必要。
-   - 理由：这是检索质量的核心。第一版可以用加权分数：`final_score = 0.65 * vector_score + 0.35 * keyword_score`。
+### 查询流程
 
-7. **实现 Prompt 组装和 Token 控制**
-   - 必要。
-   - 理由：RAG 最后交付给下游 LLM 的不是裸结果，而是受控上下文。
+```text
+question
+ -> LLM 查询改写 / 原问题 fallback
+ -> 向量检索
+ -> 关键词检索
+ -> 混合分数合并
+ -> LLM 重排 / 分数排序 fallback
+ -> Token 上限控制
+ -> 组装 Prompt
+```
 
-8. **准备样本文档和 Demo**
-   - 必要。
-   - 理由：验收需要可展示的端到端流程。
+混合分数：
 
-9. **写验证报告**
-   - 必要。
-   - 理由：题目明确要求功能验证、对比实验、边界测试。
+```text
+final_score = 0.65 * vector_score + 0.35 * keyword_score
+```
 
-10. **再补查询改写、重排、指标**
-   - 推荐。
-   - 理由：这几项能明显体现“大模型参与智能检索”，也适合作为加分点。
+## 当前验证结果
 
-**当前推荐技术选择理由**
+在 fallback 模式下运行 `python scripts/evaluate.py`，当前样本集结果：
 
-我建议第一版这样选：
+| 指标 | 结果 |
+| --- | --- |
+| 文档数 | 24 |
+| 查询数 | 6 |
+| Hit@1 | 1.0 |
+| Hit@3 | 1.0 |
 
-- **Python**：实现快，RAG 生态成熟，便于 2 周内完成。
-- **SQLite**：足够表达文档表、版本表、元数据、过期状态，轻量且好验收。
-- **本地 JSON 向量库**：用本地内存实现。
-- **OpenAI-compatible LLM Client**：避免绑定某一家模型，README 里只需配置 `BASE_URL`、`API_KEY`、`MODEL`、`EMBEDDING_MODEL`。
-- **Prompt**：都交给你来帮我写。
-- **先实现规则分数重排，再补 LLM 重排**：这样基础功能稳定，LLM 重排作为增强，不会卡住主流程。
+详细验证说明见 [docs/validation_report.md](docs/validation_report.md)。
 
-**建议从哪里开始**
+## 版本规划
 
-第一步我建议直接创建：
+### V1.0 MVP
 
-1. `docs/design.md`：把架构、流程、Schema、Prompt、检索策略先落下来。
-2. `src/knowledge_base/manager.py`：定义 `KnowledgeManager` 的两个核心接口。
-3. `src/knowledge_base/models.py`：定义数据结构。
-4. `data/samples/`：准备样本文档。
+- 完成知识入库、分类、存储、向量化、混合检索、Prompt 组装主链路。
+- 提供样本文档、Demo 和基础评估脚本。
 
-也就是说，不要一开始就纠结 UI 或高级加分项。先把“入库 -> 分类 -> 存储 -> 检索 -> Prompt”的主链路跑通。这个主链路跑通后，项目就有骨架了，后面所有加分项都能自然挂上去。
+### V1.1 当前版本
+
+- 修复 `.env` 配置加载时机问题。
+- 默认配置切换为 BigModel `glm-4.7-flash`。
+- README 改为真实项目运行说明。
+- API 调用失败时保留 fallback 路径，便于本地演示。
+
+### V2 计划
+
+- 使用真实 BigModel API 完成分类、Embedding、查询改写和重排验证。
+- 增加分类准确率评估。
+- 增加纯 LLM 直接回答 vs RAG 回答对比实验。
+- 增加批量入库性能测试和 Token 控制边界测试。
+- 将指标输出为 JSON/CSV。
+- 可选接入 Chroma 或 FAISS。
+
+### V3 计划
+
+- 增加知识冲突检测。
+- 增加 HyDE 检索增强。
+- 支持动态分类规则和人工反馈闭环。
+- 可选增加 FastAPI 服务接口。
+
+## 提交物对应
+
+- 方案设计：`docs/design.md`
+- 验证报告：`docs/validation_report.md`
+- 核心源码：`src/knowledge_base/`
+- 样本文档：`data/samples/sample_documents.json`
+- Demo：`scripts/demo_add.py`、`scripts/demo_query.py`
+- 评估：`scripts/evaluate.py`

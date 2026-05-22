@@ -16,24 +16,30 @@ class LLMClient:
 
     @property
     def enabled(self) -> bool:
-        return bool(self.settings.llm_api_key)
+        return bool(self.settings.llm_api_key.strip())
 
     def classify(self, text: str) -> dict[str, Any]:
         if self.enabled:
-            prompt = CLASSIFICATION_PROMPT.format(text=text[:6000])
-            raw = self._chat(prompt, temperature=0.1)
-            parsed = self._parse_json(raw)
-            if parsed:
-                return parsed
+            try:
+                prompt = CLASSIFICATION_PROMPT.format(text=text[:6000])
+                raw = self._chat(prompt, temperature=0.1)
+                parsed = self._parse_json(raw)
+                if parsed:
+                    return parsed
+            except Exception as exc:
+                print(f"[knowledge_base] classification API failed, fallback classifier is used: {exc}")
         return self._fallback_classify(text)
 
     def rewrite_query(self, question: str) -> dict[str, Any]:
         if self.enabled:
-            prompt = QUERY_REWRITE_PROMPT.format(question=question)
-            raw = self._chat(prompt, temperature=0.1)
-            parsed = self._parse_json(raw)
-            if parsed:
-                return parsed
+            try:
+                prompt = QUERY_REWRITE_PROMPT.format(question=question)
+                raw = self._chat(prompt, temperature=0.1)
+                parsed = self._parse_json(raw)
+                if parsed:
+                    return parsed
+            except Exception as exc:
+                print(f"[knowledge_base] query rewrite API failed, original query is used: {exc}")
         return {
             "rewritten_query": question,
             "keywords": self.extract_keywords(question),
@@ -51,10 +57,13 @@ class LLMClient:
             question=question,
             candidates=json.dumps(compact, ensure_ascii=False),
         )
-        raw = self._chat(prompt, temperature=0.0)
-        parsed = self._parse_json(raw)
-        if parsed and isinstance(parsed.get("ranked_ids"), list):
-            return [str(item) for item in parsed["ranked_ids"]]
+        try:
+            raw = self._chat(prompt, temperature=0.0)
+            parsed = self._parse_json(raw)
+            if parsed and isinstance(parsed.get("ranked_ids"), list):
+                return [str(item) for item in parsed["ranked_ids"]]
+        except Exception as exc:
+            print(f"[knowledge_base] rerank API failed, score order is used: {exc}")
         return [item["id"] for item in candidates]
 
     def embed(self, text: str) -> list[float]:
@@ -62,9 +71,12 @@ class LLMClient:
             try:
                 url = self.settings.llm_base_url.rstrip("/") + "/embeddings"
                 payload = {"model": self.settings.embedding_model, "input": text}
+                if self.settings.embedding_dimensions:
+                    payload["dimensions"] = self.settings.embedding_dimensions
                 data = self._post_json(url, payload, timeout=30)
                 return data["data"][0]["embedding"]
-            except Exception:
+            except Exception as exc:
+                print(f"[knowledge_base] embedding API failed, fallback embedding is used: {exc}")
                 pass
         return self._fallback_embed(text)
 
