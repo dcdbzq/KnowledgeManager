@@ -1,0 +1,2 @@
+# No mandatory third-party dependencies.
+# The default implementation uses Python standard library modules only.
