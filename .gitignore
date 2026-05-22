@@ -5,3 +5,4 @@ __pycache__/
 data/kb.sqlite
 data/vectors.json
 data/chroma/
+data/eval_results/*.json

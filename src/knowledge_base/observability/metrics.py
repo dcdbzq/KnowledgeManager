@@ -1,4 +1,6 @@
 from dataclasses import dataclass, field
+import json
+import os
 from time import perf_counter
 from typing import Any
 
@@ -12,6 +14,13 @@ class MetricsRecorder:
 
     def timer(self) -> "Timer":
         return Timer()
+
+    def export_json(self, path: str) -> None:
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as file:
+            json.dump(self.events, file, ensure_ascii=False, indent=2)
 
 
 class Timer:

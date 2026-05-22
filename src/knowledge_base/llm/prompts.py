@@ -2,7 +2,7 @@ CLASSIFICATION_PROMPT = """You are a knowledge base classification assistant.
 Read the knowledge text and return strict JSON only.
 
 Required JSON schema:
-{
+{{
   "business_domain": "customer_service|product|policy|sales|technical|hr|finance|operations|general",
   "knowledge_type": "faq|policy|procedure|case|product_doc|announcement|troubleshooting|document",
   "importance": "low|medium|high",
@@ -11,7 +11,7 @@ Required JSON schema:
   "summary": "one sentence summary",
   "confidence": 0.0,
   "needs_review": true
-}
+}}
 
 Rules:
 - Use null for expire_at when the text has no clear expiration.
@@ -24,11 +24,11 @@ Knowledge text:
 
 QUERY_REWRITE_PROMPT = """Rewrite the user query into a clear standalone retrieval query.
 Return strict JSON only:
-{
+{{
   "rewritten_query": "...",
   "keywords": ["..."],
   "intent": "..."
-}
+}}
 
 User query:
 {question}
@@ -36,9 +36,9 @@ User query:
 
 RERANK_PROMPT = """You are ranking retrieved knowledge snippets for a RAG system.
 Return strict JSON only:
-{
+{{
   "ranked_ids": ["id1", "id2"]
-}
+}}
 
 Question:
 {question}
