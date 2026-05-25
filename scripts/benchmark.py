@@ -16,7 +16,7 @@ QUERY = "API 返回 401 应该怎么处理？"
 
 
 def reset_data() -> None:
-    for path in [ROOT / "data" / "kb.sqlite", ROOT / "data" / "vectors.json"]:
+    for path in [RESULTS_DIR / "benchmark.sqlite", RESULTS_DIR / "benchmark_vectors.json"]:
         path.unlink(missing_ok=True)
     chroma_path = ROOT / "data" / "chroma"
     if chroma_path.exists():
@@ -36,8 +36,10 @@ def main() -> None:
         os.environ["LLM_API_KEY"] = ""
 
     copies = parse_copies()
-    reset_data()
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    os.environ["KB_DB_PATH"] = str(RESULTS_DIR / "benchmark.sqlite")
+    os.environ["KB_VECTOR_PATH"] = str(RESULTS_DIR / "benchmark_vectors.json")
+    reset_data()
     manager = KnowledgeManager()
     samples = json.loads((ROOT / "data" / "samples" / "sample_documents.json").read_text(encoding="utf-8"))
 

@@ -37,16 +37,20 @@ class KnowledgeManager:
             raise ValueError("knowledge text cannot be empty")
         with self.metrics.timer() as timer:
             classified = self.llm.classify(text)
+            embedding = self.llm.embed(text)
+            conflict = self._detect_conflict(text, embedding)
             merged = {**classified, **(metadata or {})}
+            if conflict["has_conflict"]:
+                merged["conflict_warning"] = conflict
             knowledge_metadata = KnowledgeMetadata.from_dict(merged)
             record = self.documents.add(text=text.strip(), metadata=knowledge_metadata)
-            embedding = self.llm.embed(text)
             self.vectors.upsert(record.id, embedding)
         self.metrics.record(
             "add_knowledge",
             record_id=record.id,
             confidence=knowledge_metadata.confidence,
             needs_review=knowledge_metadata.needs_review,
+            conflict_detected=conflict["has_conflict"],
             elapsed_ms=timer.elapsed_ms,
         )
         return {
@@ -54,6 +58,7 @@ class KnowledgeManager:
             "logical_id": record.logical_id,
             "version": record.version,
             "metadata": knowledge_metadata.to_dict(),
+            "conflict": conflict,
             "elapsed_ms": timer.elapsed_ms,
         }
 
@@ -104,3 +109,28 @@ class KnowledgeManager:
             }
             for record in self.documents.list_active()
         ]
+
+    def _detect_conflict(self, text: str, embedding: list[float]) -> dict[str, Any]:
+        if not self.settings.enable_conflict_check:
+            return {"has_conflict": False, "severity": "none", "conflicting_ids": [], "reason": ""}
+        active_records = self.documents.list_active()
+        if not active_records:
+            return {"has_conflict": False, "severity": "none", "conflicting_ids": [], "reason": ""}
+        active_ids = {record.id for record in active_records}
+        record_map = {record.id: record for record in active_records}
+        candidates = []
+        for record_id, score in self.vectors.search(embedding, active_ids, top_k=5):
+            record = record_map.get(record_id)
+            if not record:
+                continue
+            candidates.append(
+                {
+                    "id": record.id,
+                    "summary": record.metadata.summary,
+                    "text": record.text,
+                    "score": round(score, 4),
+                }
+            )
+        conflict = self.llm.detect_conflict(text, candidates)
+        conflict["candidate_count"] = len(candidates)
+        return conflict

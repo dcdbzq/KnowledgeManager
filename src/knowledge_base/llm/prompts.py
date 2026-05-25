@@ -47,6 +47,38 @@ Candidates:
 {candidates}
 """
 
+HYDE_PROMPT = """Write a concise hypothetical answer that would help retrieve relevant internal knowledge.
+Return plain text only, no markdown.
+
+Question:
+{question}
+"""
+
+CONFLICT_DETECTION_PROMPT = """You are checking whether a new knowledge item conflicts with existing knowledge.
+Return strict JSON only:
+{{
+  "has_conflict": false,
+  "severity": "none|low|medium|high",
+  "conflicting_ids": ["id"],
+  "reason": "short explanation"
+}}
+
+New knowledge:
+{new_text}
+
+Existing candidates:
+{candidates}
+"""
+
+DIRECT_ANSWER_PROMPT = """Answer the user question directly.
+If the question requires private company knowledge that is not present in the prompt, state that the information is not available.
+
+Question:
+{question}
+
+Answer:
+"""
+
 ANSWER_PROMPT_TEMPLATE = """You are a knowledge-grounded assistant. Answer using only the provided context.
 If the context is insufficient, say what is missing instead of guessing.
 

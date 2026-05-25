@@ -6,3 +6,5 @@ data/kb.sqlite
 data/vectors.json
 data/chroma/
 data/eval_results/*.json
+data/eval_results/*.sqlite
+data/eval_results/*_vectors.json

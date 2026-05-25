@@ -41,7 +41,7 @@ EXPECTED = {
 
 
 def reset_data() -> None:
-    for path in [ROOT / "data" / "kb.sqlite", ROOT / "data" / "vectors.json"]:
+    for path in [RESULTS_DIR / "classification_eval.sqlite", RESULTS_DIR / "classification_eval_vectors.json"]:
         path.unlink(missing_ok=True)
     chroma_path = ROOT / "data" / "chroma"
     if chroma_path.exists():
@@ -52,8 +52,10 @@ def main() -> None:
     if "--fallback" in sys.argv:
         os.environ["LLM_API_KEY"] = ""
 
-    reset_data()
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    os.environ["KB_DB_PATH"] = str(RESULTS_DIR / "classification_eval.sqlite")
+    os.environ["KB_VECTOR_PATH"] = str(RESULTS_DIR / "classification_eval_vectors.json")
+    reset_data()
     manager = KnowledgeManager()
     samples = json.loads((ROOT / "data" / "samples" / "sample_documents.json").read_text(encoding="utf-8"))
 
