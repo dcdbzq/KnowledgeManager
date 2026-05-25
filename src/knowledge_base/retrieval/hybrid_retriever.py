@@ -23,15 +23,18 @@ class HybridRetriever:
     def retrieve(self, question: str, top_k: int) -> tuple[list[RetrievalHit], dict[str, object]]:
         rewrite = self.llm.rewrite_query(question)
         retrieval_query = str(rewrite.get("rewritten_query") or question)
+        hyde_answer = self.llm.generate_hyde(question)
+        semantic_query = f"{retrieval_query}\n{hyde_answer}" if hyde_answer else retrieval_query
         active_records = self.document_store.list_active()
         active_ids = {record.id for record in active_records}
 
         keyword_index = KeywordIndex()
         keyword_index.build(active_records)
 
-        query_vector = self.llm.embed(retrieval_query)
+        query_vector = self.llm.embed(semantic_query)
         vector_hits = dict(self.vector_store.search(query_vector, active_ids, top_k=top_k * 3))
-        keyword_hits = dict(keyword_index.search(retrieval_query + " " + " ".join(rewrite.get("keywords", [])), top_k=top_k * 3))
+        keyword_query = " ".join([retrieval_query, hyde_answer, " ".join(rewrite.get("keywords", []))])
+        keyword_hits = dict(keyword_index.search(keyword_query, top_k=top_k * 3))
 
         merged_ids = set(vector_hits) | set(keyword_hits)
         record_map = {record.id: record for record in active_records}
@@ -58,6 +61,7 @@ class HybridRetriever:
         hits.sort(key=lambda item: item.score, reverse=True)
         debug = {
             "rewrite": rewrite,
+            "hyde_answer": hyde_answer,
             "candidate_count": len(merged_ids),
             "active_document_count": len(active_records),
         }

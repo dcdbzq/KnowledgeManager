@@ -1,7 +1,9 @@
+from contextlib import contextmanager
 import json
 import os
 import sqlite3
 import uuid
+from collections.abc import Iterator
 from datetime import date
 
 from ..models import KnowledgeMetadata, KnowledgeRecord, now_iso
@@ -94,10 +96,18 @@ class DocumentStore:
             ).fetchone()
         return int(row["next_version"])
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def _row_to_record(self, row: sqlite3.Row) -> KnowledgeRecord:
         metadata = KnowledgeMetadata.from_dict(json.loads(row["metadata_json"]))

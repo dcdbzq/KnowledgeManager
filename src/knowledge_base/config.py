@@ -21,6 +21,13 @@ def _env_float(key: str, default: float) -> float:
     return float(value) if value else default
 
 
+def _env_bool(key: str, default: bool) -> bool:
+    value = os.getenv(key)
+    if value is None or value == "":
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class Settings:
     llm_api_key: str = field(default_factory=lambda: _env_str("LLM_API_KEY"))
@@ -28,6 +35,14 @@ class Settings:
     llm_model: str = field(default_factory=lambda: _env_str("LLM_MODEL", "glm-4.7-flash"))
     embedding_model: str = field(default_factory=lambda: _env_str("EMBEDDING_MODEL", "embedding-3"))
     embedding_dimensions: int | None = field(default_factory=lambda: _env_optional_int("EMBEDDING_DIMENSIONS"))
+    enable_llm: bool = field(default_factory=lambda: _env_bool("ENABLE_LLM", True))
+    enable_embedding_api: bool = field(default_factory=lambda: _env_bool("ENABLE_EMBEDDING_API", True))
+    enable_query_rewrite: bool = field(default_factory=lambda: _env_bool("ENABLE_QUERY_REWRITE", True))
+    enable_rerank: bool = field(default_factory=lambda: _env_bool("ENABLE_RERANK", True))
+    enable_hyde: bool = field(default_factory=lambda: _env_bool("ENABLE_HYDE", False))
+    enable_conflict_check: bool = field(default_factory=lambda: _env_bool("ENABLE_CONFLICT_CHECK", False))
+    api_retry_attempts: int = field(default_factory=lambda: _env_int("API_RETRY_ATTEMPTS", 2))
+    api_retry_backoff_seconds: float = field(default_factory=lambda: _env_float("API_RETRY_BACKOFF_SECONDS", 2.0))
     db_path: str = field(default_factory=lambda: _env_str("KB_DB_PATH", "data/kb.sqlite"))
     vector_path: str = field(default_factory=lambda: _env_str("KB_VECTOR_PATH", "data/vectors.json"))
     vector_dimensions: int = field(default_factory=lambda: _env_int("KB_VECTOR_DIMENSIONS", 256))
